@@ -29,13 +29,10 @@
 
 <ItemGroup>
   <EmbeddedResource Include="Resources/assets-win.bundle">
-    <LogicalName>BaldiGlitch.Resources.assets-win.bundle</LogicalName>
   </EmbeddedResource>
   <EmbeddedResource Include="Resources/assets-mac.bundle">
-    <LogicalName>BaldiGlitch.Resources.assets-mac.bundle</LogicalName>
   </EmbeddedResource>
   <EmbeddedResource Include="Resources/assets-linux.bundle">
-    <LogicalName>BaldiGlitch.Resources.assets-linux.bundle</LogicalName>
   </EmbeddedResource>
 </ItemGroup>
 
