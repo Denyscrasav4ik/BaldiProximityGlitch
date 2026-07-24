@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using BepInEx;
+using BepInEx.Configuration;
 using HarmonyLib;
 using BaldiProximityGlitch.KinoGlitch;
 using UnityEngine;
@@ -18,29 +19,51 @@ namespace BaldiProximityGlitch
     {
         public const string ModGuid = "denyscrasav4ik.thedumbfactory.baldiproximityglitch";
         public const string ModName = "Baldi Proximity Glitch";
-        public const string ModVersion = "1.0.0";
+        public const string ModVersion = "1.1.0";
 
-        public static GlitchPlugin Instance { get; private set; }
+        public static GlitchPlugin? Instance { get; private set; }
 
-        private Harmony _harmony;
-        private Shader _glitchShader;
-        private AnalogGlitchRenderPass _renderPass;
-        private AnalogGlitchVolume _glitchVolume;
+        private Harmony? _harmony;
+        private Shader? _glitchShader;
+        private AnalogGlitchRenderPass? _renderPass;
+        private AnalogGlitchVolume? _glitchVolume;
         private static readonly HashSet<Camera> TargetCameras = new HashSet<Camera>();
 
-        // Proximity settings
-        [SerializeField] private float maxDistance = 70f; // Distance where glitch begins
-        [SerializeField] private float minDistance = 5f;  // Distance where glitch is at max (1.0)
+        private ConfigEntry<float>? _configMinDistance;
+        private ConfigEntry<float>? _configMaxDistance;
+        private ConfigEntry<float>? _configMaxIntensity;
 
-        private PlayerManager _cachedPlayer;
-        private Baldi _cachedBaldi;
+        private PlayerManager? _cachedPlayer;
+        private Baldi? _cachedBaldi;
 
         private void Awake()
         {
             Instance = this;
+
+            _configMinDistance = Config.Bind(
+                "Settings",
+                "MinDistance",
+                5f,
+                "Distance at which glitch intensity reaches its maximum."
+            );
+
+            _configMaxDistance = Config.Bind(
+                "Settings",
+                "MaxDistance",
+                70f,
+                "Distance at which glitch effects start becoming visible."
+            );
+
+            _configMaxIntensity = Config.Bind(
+                "Settings",
+                "MaxIntensity",
+                1.0f,
+                "Maximum intensity cap for the glitch effect (Range: 0.0 to 1.0)."
+            );
+
             LoadEmbeddedShader();
             SetupGlitchVolume();
-            _renderPass = new AnalogGlitchRenderPass(_glitchShader);
+            _renderPass = new AnalogGlitchRenderPass(_glitchShader!);
             RenderPipelineManager.beginCameraRendering += OnBeginCameraRendering;
             _harmony = new Harmony(ModGuid);
             _harmony.PatchAll(typeof(GlitchPlugin));
@@ -61,9 +84,17 @@ namespace BaldiProximityGlitch
 
             if (_cachedPlayer != null && _cachedBaldi != null)
             {
+                float minDist = _configMinDistance?.Value ?? 5f;
+                float maxDist = _configMaxDistance?.Value ?? 70f;
+                float maxIntensity = Mathf.Clamp01(_configMaxIntensity?.Value ?? 1.0f);
+
                 float distance = Vector3.Distance(_cachedPlayer.transform.position, _cachedBaldi.transform.position);
-                float t = Mathf.Clamp01(1f - ((distance - minDistance) / (maxDistance - minDistance)));
-                float intensity = Mathf.Pow(t, 2f);
+
+                float range = Mathf.Max(0.0001f, maxDist - minDist);
+                float t = Mathf.Clamp01(1f - ((distance - minDist) / range));
+
+                float intensity = Mathf.Pow(t, 2f) * maxIntensity;
+
                 _glitchVolume.scanLineJitter.value = intensity;
                 _glitchVolume.verticalJump.value = intensity;
                 _glitchVolume.horizontalShake.value = intensity;
@@ -87,9 +118,7 @@ namespace BaldiProximityGlitch
 
         private void LoadEmbeddedShader()
         {
-            string bundleFileName;
-
-            bundleFileName = true switch
+            string bundleFileName = true switch
             {
                 _ when RuntimeInformation.IsOSPlatform(OSPlatform.Windows) => "assets-win.bundle",
                 _ when RuntimeInformation.IsOSPlatform(OSPlatform.OSX) => "assets-mac.bundle",
@@ -102,25 +131,14 @@ namespace BaldiProximityGlitch
             string resourceName = executingAssembly.GetManifestResourceNames()
                 .FirstOrDefault(str => str.EndsWith(bundleFileName, StringComparison.OrdinalIgnoreCase));
 
-            if (string.IsNullOrEmpty(resourceName))
-            {
-                Logger.LogError($"Embedded resource '{bundleFileName}' not found in assembly.");
-                return;
-            }
-
             using (Stream stream = executingAssembly.GetManifestResourceStream(resourceName))
             {
-                if (stream == null) return;
-
                 byte[] buffer = new byte[stream.Length];
                 stream.Read(buffer, 0, buffer.Length);
 
                 AssetBundle bundle = AssetBundle.LoadFromMemory(buffer);
-                if (bundle != null)
-                {
-                    _glitchShader = bundle.LoadAsset<Shader>("AnalogGlitch");
-                    bundle.Unload(false);
-                }
+                _glitchShader = bundle.LoadAsset<Shader>("AnalogGlitch");
+                bundle.Unload(false);
             }
         }
 
@@ -184,7 +202,7 @@ namespace BaldiProximityGlitch
             {
                 if (field.FieldType == typeof(Camera))
                 {
-                    Camera cam = field.GetValue(__instance) as Camera;
+                    Camera cam = (field.GetValue(__instance) as Camera)!;
                     if (cam != null)
                     {
                         GlitchPlugin.RegisterCamera(cam);
